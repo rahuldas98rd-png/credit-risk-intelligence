@@ -1,0 +1,8 @@
+{
+  "n_rows": 307511,
+  "n_cols": 122,
+  "default_rate": 0.0807,
+  "missing_cols_over_40pct": 49,
+  "numeric_cols": 106,
+  "categorical_cols": 16
+}
