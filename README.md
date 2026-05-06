@@ -37,6 +37,7 @@ This project builds an ML system that predicts the probability a borrower will d
 
 ## Architecture
 
+```bash
 Raw Data (307k applications)
         │
         ▼
@@ -62,7 +63,7 @@ SHAP TreeExplainer
         ▼
 Deployment Layer
 (FastAPI API + Streamlit Dashboard)
-
+```
 ---
 
 ## Key Findings from EDA
@@ -141,6 +142,7 @@ The Streamlit simulator lets stakeholders explore the revenue vs. loss tradeoff 
 ---
 
 ## Project Structure
+```bash
 credit-risk-intelligence/
 ├── api/              # FastAPI prediction endpoint
 ├── app/              # Streamlit business dashboard
@@ -157,7 +159,7 @@ credit-risk-intelligence/
 │   ├── explain.py    # SHAP explainability
 │   └── utils.py      # Shared paths, logging
 └── tests/            # Unit tests (pytest)
-
+```
 ---
 
 ## Running the Project

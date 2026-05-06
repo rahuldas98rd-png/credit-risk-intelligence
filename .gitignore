@@ -1,5 +1,6 @@
 self_notes.txt
-
+data/raw/
+notebooks/mlruns/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
