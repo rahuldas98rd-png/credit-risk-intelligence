@@ -8,7 +8,8 @@ import shap
 from pathlib import Path
 import sys
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.utils import ROOT_DIR, DATA_PROC, get_logger
 
 logger = get_logger("streamlit")
