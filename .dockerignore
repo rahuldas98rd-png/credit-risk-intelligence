@@ -28,8 +28,7 @@ data/processed/*.parquet
 
 # Streamlit / docs
 app/
-README.md
-LICENSE
+
 
 # Render config (not needed inside container)
 render.yaml
