@@ -46,6 +46,8 @@
 
 ---
 
+[![CI](https://github.com/rahuldas98rd-png/credit-risk-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/rahuldas98rd-png/credit-risk-intelligence/actions/workflows/ci.yml)
+
 ## The Problem
 
 A consumer lender processes thousands of loan applications every day. Two failure modes destroy value in opposite directions:

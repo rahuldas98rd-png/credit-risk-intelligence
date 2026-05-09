@@ -1,10 +1,9 @@
-import json
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
 from sklearn.impute import SimpleImputer
-from pathlib import Path
-from src.utils import DATA_PROC, get_logger
+from sklearn.preprocessing import LabelEncoder
+
+from src.utils import get_logger
 
 logger = get_logger("features")
 

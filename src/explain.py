@@ -1,11 +1,12 @@
+
+import joblib
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shap
-import joblib
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from pathlib import Path
-from src.utils import DATA_PROC, REPORTS, ROOT_DIR, get_logger
+
+from src.utils import REPORTS, ROOT_DIR, get_logger
 
 logger = get_logger("explain")
 MODELS_DIR = ROOT_DIR / "models"

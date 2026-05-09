@@ -1,19 +1,17 @@
+from contextlib import asynccontextmanager
+
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
 import shap
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional
-from pathlib import Path
+
 from src.utils import ROOT_DIR, get_logger
 
 logger = get_logger("api")
 MODELS_DIR = ROOT_DIR / "models"
-
-from contextlib import asynccontextmanager
-
 
 # Module-level state initialized in the lifespan
 fold_models = None

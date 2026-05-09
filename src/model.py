@@ -1,19 +1,21 @@
-import numpy as np
-import pandas as pd
-import mlflow
+
+import joblib
+import lightgbm as lgb
 import mlflow.lightgbm
 import mlflow.sklearn
-import joblib
-from pathlib import Path
-from sklearn.model_selection import StratifiedKFold
+import numpy as np
+import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
-    roc_auc_score, average_precision_score,
-    precision_recall_curve, brier_score_loss
+    average_precision_score,
+    brier_score_loss,
+    precision_recall_curve,
+    roc_auc_score,
 )
-from sklearn.calibration import CalibratedClassifierCV
-import lightgbm as lgb
-from src.utils import get_logger, DATA_PROC, ROOT_DIR
+from sklearn.model_selection import StratifiedKFold
+
+import mlflow
+from src.utils import DATA_PROC, ROOT_DIR, get_logger
 
 logger = get_logger("model")
 MODELS_DIR = ROOT_DIR / "models"

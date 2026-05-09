@@ -1,0 +1,32 @@
+# Ruff linter + formatter config.
+# We start conservative: only catch real errors and import issues. Style
+# warnings (line length, naming conventions) are off so we don't drown a
+# previously-unlinted codebase in noise on first CI run.
+
+target-version = "py312"
+line-length = 100
+
+extend-exclude = [
+    "notebooks",
+    "data",
+    "mlruns",
+    "mlflow",
+    "reports",
+    "venv",
+    ".venv",
+    "credit_risk_intelligence.egg-info",
+    "tree_generator.py",
+]
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes (unused imports, undefined names — real bugs)
+    "I",   # isort (import ordering)
+]
+ignore = [
+    "E501",  # line too long — defer to formatter
+]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports are fine in __init__

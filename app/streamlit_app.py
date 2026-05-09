@@ -1,16 +1,16 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-import joblib
-import shap
-from pathlib import Path
+import os
 import sys
 
-import os
+import joblib
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import shap
+import streamlit as st
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.utils import ROOT_DIR, DATA_PROC, get_logger
+from src.utils import DATA_PROC, ROOT_DIR, get_logger
 
 logger = get_logger("streamlit")
 MODELS_DIR = ROOT_DIR / "models"
