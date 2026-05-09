@@ -1,0 +1,37 @@
+# Version control
+.git/
+.github/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.python-version
+.venv/
+venv/
+
+# Local dev only
+.env
+notebooks/
+mlflow/
+mlruns/
+reports/
+self_notes.txt
+tree_generator.py
+
+# Heavy data — must NOT go into the image
+data/raw/
+data/external/
+data/processed/*.parquet
+
+# Streamlit / docs
+app/
+README.md
+LICENSE
+
+# Render config (not needed inside container)
+render.yaml
+runtime.txt
+packages.txt

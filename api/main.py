@@ -12,10 +12,35 @@ from src.utils import ROOT_DIR, get_logger
 logger = get_logger("api")
 MODELS_DIR = ROOT_DIR / "models"
 
+from contextlib import asynccontextmanager
+
+
+# Module-level state initialized in the lifespan
+fold_models = None
+meta_model = None
+feature_names: list[str] = []
+explainer = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Load model artifacts on startup; release on shutdown."""
+    global fold_models, meta_model, feature_names, explainer
+    fold_models   = joblib.load(MODELS_DIR / "lgbm_folds.pkl")
+    meta_model    = joblib.load(MODELS_DIR / "meta_learner.pkl")
+    feature_names = joblib.load(MODELS_DIR / "feature_names.pkl")
+    explainer     = shap.TreeExplainer(fold_models[0])
+    logger.info(f"Models loaded — {len(feature_names)} features")
+    yield
+    # Shutdown hook (no cleanup needed today; could close DB pools etc. later)
+    logger.info("API shutting down")
+
+
 app = FastAPI(
     title="Credit Risk Intelligence API",
     description="Predict loan default probability with SHAP explainability",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -24,16 +49,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ── Load models at startup ─────────────────────────────────────────────────────
-@app.on_event("startup")
-def load_models():
-    global fold_models, meta_model, feature_names, explainer
-    fold_models   = joblib.load(MODELS_DIR / "lgbm_folds.pkl")
-    meta_model    = joblib.load(MODELS_DIR / "meta_learner.pkl")
-    feature_names = joblib.load(MODELS_DIR / "feature_names.pkl")
-    explainer     = shap.TreeExplainer(fold_models[0])
-    logger.info(f"Models loaded — {len(feature_names)} features")
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
