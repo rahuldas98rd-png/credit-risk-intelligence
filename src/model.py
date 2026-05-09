@@ -1,8 +1,17 @@
+"""Model training and evaluation.
 
+Design note on imports: mlflow is intentionally NOT imported at module level.
+Importing mlflow at the top of this file would force it as a dependency for
+anyone who imports `compute_metrics` (notably `tests/test_model.py` and the
+deployed API), even though those consumers have no use for experiment
+tracking. Instead, mlflow imports live inside `run_training` — the only
+function that actually uses them.
+
+This keeps the hot path (inference, metrics) light and the heavy path
+(training) explicit about its dependencies.
+"""
 import joblib
 import lightgbm as lgb
-import mlflow.lightgbm
-import mlflow.sklearn
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
@@ -14,7 +23,6 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import StratifiedKFold
 
-import mlflow
 from src.utils import DATA_PROC, ROOT_DIR, get_logger
 
 logger = get_logger("model")
@@ -27,12 +35,12 @@ MODELS_DIR.mkdir(exist_ok=True)
 def compute_metrics(y_true, y_prob) -> dict:
     precision, recall, thresholds = precision_recall_curve(y_true, y_prob)
     f1_scores = 2 * precision * recall / (precision + recall + 1e-9)
-    best_idx  = np.argmax(f1_scores)
+    best_idx = np.argmax(f1_scores)
     return {
-        "roc_auc":    round(roc_auc_score(y_true, y_prob), 4),
-        "pr_auc":     round(average_precision_score(y_true, y_prob), 4),
-        "brier":      round(brier_score_loss(y_true, y_prob), 4),
-        "best_f1":    round(f1_scores[best_idx], 4),
+        "roc_auc": round(roc_auc_score(y_true, y_prob), 4),
+        "pr_auc": round(average_precision_score(y_true, y_prob), 4),
+        "brier": round(brier_score_loss(y_true, y_prob), 4),
+        "best_f1": round(f1_scores[best_idx], 4),
         "best_threshold": round(float(thresholds[best_idx]), 4),
     }
 
@@ -40,20 +48,20 @@ def compute_metrics(y_true, y_prob) -> dict:
 # ── LightGBM base learner ──────────────────────────────────────────────────────
 
 LGBM_PARAMS = {
-    "objective":       "binary",
-    "metric":          "average_precision",
-    "boosting_type":   "gbdt",
-    "num_leaves":      63,
-    "learning_rate":   0.05,
+    "objective": "binary",
+    "metric": "average_precision",
+    "boosting_type": "gbdt",
+    "num_leaves": 63,
+    "learning_rate": 0.05,
     "feature_fraction": 0.8,
     "bagging_fraction": 0.8,
-    "bagging_freq":    5,
+    "bagging_freq": 5,
     "min_child_samples": 100,
     "scale_pos_weight": 11,   # ~91.93/8.07 — handles class imbalance
-    "n_estimators":    1000,
-    "random_state":    42,
-    "n_jobs":          -1,
-    "verbose":         -1,
+    "n_estimators": 1000,
+    "random_state": 42,
+    "n_jobs": -1,
+    "verbose": -1,
 }
 
 
@@ -62,7 +70,7 @@ def train_lgbm_cv(X: pd.DataFrame, y: pd.Series, n_splits: int = 5) -> tuple:
     Stratified K-Fold cross-validation for LightGBM.
     Returns out-of-fold predictions and trained fold models.
     """
-    skf      = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
     oof_preds = np.zeros(len(y))
     fold_models = []
     fold_metrics = []
@@ -99,7 +107,7 @@ def train_lgbm_cv(X: pd.DataFrame, y: pd.Series, n_splits: int = 5) -> tuple:
 
 # ── Meta-learner (stacking) ────────────────────────────────────────────────────
 
-def train_meta_learner(oof_preds: np.ndarray, y: pd.Series) -> LogisticRegression:
+def train_meta_learner(oof_preds: np.ndarray, y: pd.Series) -> tuple:
     """
     Logistic Regression trained on LightGBM OOF predictions.
     Simple but effective — captures any residual calibration.
@@ -107,7 +115,7 @@ def train_meta_learner(oof_preds: np.ndarray, y: pd.Series) -> LogisticRegressio
     meta = LogisticRegression(C=1.0, max_iter=1000, random_state=42)
     meta.fit(oof_preds.reshape(-1, 1), y)
     meta_prob = meta.predict_proba(oof_preds.reshape(-1, 1))[:, 1]
-    metrics   = compute_metrics(y, meta_prob)
+    metrics = compute_metrics(y, meta_prob)
     logger.info(f"Meta-learner | ROC-AUC: {metrics['roc_auc']} | PR-AUC: {metrics['pr_auc']}")
     return meta, metrics
 
@@ -115,6 +123,13 @@ def train_meta_learner(oof_preds: np.ndarray, y: pd.Series) -> LogisticRegressio
 # ── Full training run with MLflow ──────────────────────────────────────────────
 
 def run_training(X: pd.DataFrame, y: pd.Series):
+    """Full training pipeline with MLflow experiment tracking.
+
+    mlflow is imported here, NOT at module top, so that consumers of
+    `compute_metrics` (e.g. tests, the deployed API) don't have to install it.
+    """
+    import mlflow  # local import — mlflow is a training-only dependency
+
     db_path = ROOT_DIR / "mlflow" / "mlflow.db"
     db_path.parent.mkdir(exist_ok=True)
     uri = f"sqlite:///{db_path.as_posix()}"
@@ -156,9 +171,9 @@ def run_training(X: pd.DataFrame, y: pd.Series):
             mlflow.log_metric("fold_pr_auc", fm["pr_auc"], step=i)
 
         best_fold_idx = np.argmax([m["pr_auc"] for m in fold_metrics])
-        best_model    = fold_models[best_fold_idx]
+        best_model = fold_models[best_fold_idx]
         fi_df = pd.DataFrame({
-            "feature":    X.columns,
+            "feature": X.columns,
             "importance": best_model.feature_importances_
         }).sort_values("importance", ascending=False)
 
@@ -168,7 +183,7 @@ def run_training(X: pd.DataFrame, y: pd.Series):
 
         MODELS_DIR.mkdir(exist_ok=True)
         joblib.dump(fold_models, MODELS_DIR / "lgbm_folds.pkl")
-        joblib.dump(meta_model,  MODELS_DIR / "meta_learner.pkl")
+        joblib.dump(meta_model, MODELS_DIR / "meta_learner.pkl")
         joblib.dump(list(X.columns), MODELS_DIR / "feature_names.pkl")
 
         logger.info(f"Run complete: {run.info.run_id}")

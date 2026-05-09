@@ -1,5 +1,3 @@
-
-
 # ─── Stage 1: builder ─────────────────────────────────────────────────────
 # Compiles deps (LightGBM needs build tools) into an isolated venv we can copy.
 FROM python:3.12-slim AS builder
@@ -14,8 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy only what's needed for `pip install -e .` to succeed
-COPY requirements.txt setup.py ./
+# Copy only what's needed for `pip install -e .` to succeed.
+# Note: pyproject.toml replaces setup.py as of Phase 2 Session 2B.
+COPY requirements.txt pyproject.toml README.md ./
 COPY src/ ./src/
 
 RUN pip install --upgrade pip \

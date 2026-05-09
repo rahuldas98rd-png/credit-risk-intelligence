@@ -1,0 +1,119 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "credit-risk-intelligence"
+version = "0.1.0"
+description = "End-to-end credit default risk ML system with FastAPI service, SHAP explainability, and live Streamlit dashboard"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Rahul Das" },
+]
+keywords = [
+    "machine-learning",
+    "credit-risk",
+    "fastapi",
+    "shap",
+    "lightgbm",
+    "mlops",
+    "explainability",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Production runtime dependencies — what the API + Streamlit need to run
+dependencies = [
+    "pandas==2.2.2",
+    "numpy==1.26.4",
+    "scikit-learn==1.5.0",
+    "lightgbm==4.3.0",
+    "imbalanced-learn==0.12.3",
+    "shap==0.45.1",
+    "streamlit==1.35.0",
+    "plotly==5.22.0",
+    "matplotlib==3.9.0",
+    "seaborn==0.13.2",
+    "joblib==1.5.3",
+    "pyarrow==15.0.2",
+    "python-dotenv==1.0.1",
+    "fastapi==0.111.0",
+    "uvicorn==0.29.0",
+    "pydantic==2.13.3",
+]
+
+# Optional groups — install with `uv sync --extra test` etc.
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+training = [
+    # Only needed by src/model.py's training functions and the notebooks.
+    # Imported lazily inside training functions, NOT at module level.
+    "mlflow==2.17.2",
+]
+dev = [
+    "credit-risk-intelligence[test,training]",
+    "ipykernel",
+    "jupyter",
+]
+
+[project.urls]
+Homepage = "https://github.com/rahuldas98rd-png/credit-risk-intelligence"
+Repository = "https://github.com/rahuldas98rd-png/credit-risk-intelligence"
+Issues = "https://github.com/rahuldas98rd-png/credit-risk-intelligence/issues"
+
+# Hatchling needs to know which directories are part of the wheel.
+# We expose `src` and `api` as importable packages (matches the existing
+# `from src.utils import ...` and `from api.main import ...` patterns).
+[tool.hatch.build.targets.wheel]
+packages = ["src", "api"]
+
+
+# ─── Tool configuration (replaces standalone ruff.toml) ──────────────────────
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+    "notebooks",
+    "data",
+    "mlruns",
+    "mlflow",
+    "reports",
+    "venv",
+    ".venv",
+    "credit_risk_intelligence.egg-info",
+    "tree_generator.py",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes (unused imports, undefined names — real bugs)
+    "I",   # isort (import ordering)
+]
+ignore = [
+    "E501",  # line too long — defer to formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports are fine in __init__
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    # Suppress noisy upstream deprecations from matplotlib's pyparsing usage
+    # and mlflow's Pydantic V1 validators. They aren't our bugs.
+    "ignore::DeprecationWarning:matplotlib.*",
+    "ignore::pydantic.PydanticDeprecatedSince20",
+]
