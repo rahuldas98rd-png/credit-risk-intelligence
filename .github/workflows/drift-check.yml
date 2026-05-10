@@ -1,0 +1,84 @@
+name: Drift Check
+
+on:
+  # Manual trigger from the GitHub Actions UI — useful for ad-hoc analysis
+  workflow_dispatch:
+    inputs:
+      drift_factor:
+        description: "Synthetic drift severity (0.0=none, 1.0=strong, 1.5=severe)"
+        required: false
+        default: "0.3"
+        type: string
+
+  # Daily schedule at 02:00 UTC. Leave commented for portfolio repos to
+  # avoid filling the Actions history with daily runs; uncomment in a
+  # real production deployment where daily checks are wanted.
+  # schedule:
+  #   - cron: "0 2 * * *"
+
+jobs:
+  drift:
+    name: Generate Evidently drift report
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Install dependencies (training extras include evidently)
+        run: uv sync --extra training
+
+      - name: Verify baseline exists
+        run: |
+          if [ ! -f data/processed/drift_baseline.parquet ]; then
+            echo "::error::Baseline parquet missing at data/processed/drift_baseline.parquet"
+            echo "Run scripts/capture_baseline.py locally and commit the baseline."
+            exit 1
+          fi
+          echo "Baseline OK ($(du -h data/processed/drift_baseline.parquet | cut -f1))"
+
+      - name: Run drift report
+        run: |
+          uv run python scripts/run_drift_report.py \
+            --drift-factor "${{ github.event.inputs.drift_factor || '0.3' }}"
+
+      - name: Show summary
+        run: cat reports/drift/latest_summary.json
+
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report-${{ github.run_number }}
+          path: |
+            reports/drift/latest.html
+            reports/drift/latest_summary.json
+          retention-days: 30
+
+      # Optional: commit the latest report back to main so it's clickable
+      # in the repo. Disabled by default to keep history clean — uncomment
+      # if you want the README "View latest drift report" link to always
+      # render the most recent run.
+      #
+      # - name: Commit latest report
+      #   run: |
+      #     git config user.email "actions@github.com"
+      #     git config user.name "github-actions[bot]"
+      #     git add reports/drift/latest.html reports/drift/latest_summary.json
+      #     if ! git diff --staged --quiet; then
+      #       git commit -m "chore: update drift report ($(date -u +%Y-%m-%d))"
+      #       git push
+      #     fi

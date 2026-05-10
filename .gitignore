@@ -3,6 +3,12 @@ data/raw/
 notebooks/mlruns/
 requirements-dev.txt
 
+# Keep only the latest drift report committed; older ones live in GHA artifacts
+reports/drift/*_drift_report.html
+reports/drift/*_summary.json
+!reports/drift/latest.html
+!reports/drift/latest_summary.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

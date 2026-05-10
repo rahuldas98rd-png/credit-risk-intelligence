@@ -502,6 +502,63 @@ See `src/registry.py::CreditRiskStackedModel`.
 
 ---
 
+## Drift Detection
+
+The model registry tells you *which* version is deployed. The Grafana dashboard tells you *whether the service is healthy*. The drift report tells you the third question: **is the model still seeing the same world it was trained on?**
+
+### How it works
+data/raw/application_train.csv (10K sample)
+│
+▼
+data/processed/drift_baseline.parquet  ← reference distribution
+│
+▼
+┌──────────────────────────────┐
+current ──► │  Evidently DataDriftPreset   │ ──► reports/drift/<date>.html
+│  + DataQualityPreset         │     reports/drift/latest_summary.json
+└──────────────────────────────┘
+
+### Capture a baseline (run once after each model retraining)
+
+```bash
+uv run python scripts/capture_baseline.py
+# Writes data/processed/drift_baseline.parquet (~1 MB, committed to repo)
+```
+
+### Generate a drift report
+
+```bash
+# Synthetic comparison: no drift expected
+uv run python scripts/run_drift_report.py --drift-factor 0.0
+
+# Synthetic moderate drift (typical demo scenario)
+uv run python scripts/run_drift_report.py --drift-factor 0.3
+
+# Real production data (when you have it captured from /predict logs)
+uv run python scripts/run_drift_report.py --current data/processed/last_24h_inputs.parquet
+```
+
+Output:
+
+- `reports/drift/<timestamp>_drift_report.html` — full interactive Evidently report (per-feature drift charts, PSI scores, KS tests, distribution comparisons)
+- `reports/drift/<timestamp>_summary.json` — machine-readable summary
+- `reports/drift/latest.html` — symlinked to most recent report
+
+### CI integration
+
+`.github/workflows/drift-check.yml` runs the drift detection on demand or on a schedule. Reports are uploaded as workflow artifacts (downloadable from the Actions UI for 30 days). The cron schedule is commented out by default in this portfolio repo; production deployments would enable it.
+
+### Why synthetic vs. production data
+
+Real production drift detection requires logging every `/predict` input to durable storage (S3 parquet, Postgres, etc.) and reading it back daily. Render's free tier has ephemeral storage so the production-data pipeline isn't deployed here. Instead, the script can perturb the baseline with a configurable `--drift-factor` to simulate scenarios (no drift / moderate drift / severe drift) — useful for testing alerting thresholds and demonstrating the workflow. In a deployed system, swap the synthetic generator for `--current path/to/recent_logs.parquet`.
+
+### Roadmap (not yet implemented)
+
+- Push drift score to a Prometheus gauge so it appears as a 5th Grafana panel
+- Authenticated `/admin/drift` API endpoint for scripts to update the gauge
+- Alert rules for `drift_score > 0.3` (PagerDuty / Slack webhook)
+- Drift-triggered retraining: drift detected → GitHub Actions cron → retrain → register new MLflow version → manual approval → promote to Production
+
 ## Dataset & References
 
 **Dataset:** [Home Credit Default Risk](https://www.kaggle.com/c/home-credit-default-risk) — Kaggle competition, 307,511 loan applications with 122 features. Used under the competition's terms.
