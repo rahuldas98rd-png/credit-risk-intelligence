@@ -17,11 +17,10 @@ Backing store:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
-import mlflow
 import mlflow.pyfunc
 
+import mlflow
 from src.utils import ROOT_DIR, get_logger
 
 logger = get_logger("registry")
