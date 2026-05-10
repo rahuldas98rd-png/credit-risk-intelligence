@@ -2,6 +2,7 @@
 
 > An end-to-end machine learning system that predicts loan default probability, explains every prediction with SHAP values, and lets stakeholders simulate the business impact of approval thresholds in real time.
 
+[![CI](https://github.com/rahuldas98rd-png/credit-risk-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/rahuldas98rd-png/credit-risk-intelligence/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![LightGBM](https://img.shields.io/badge/LightGBM-4.3.0-2E7D32)](https://lightgbm.readthedocs.io/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.5.0-F7931E?logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
@@ -9,6 +10,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.35-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![MLflow](https://img.shields.io/badge/MLflow-2.17.2-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org/)
+[![Docker](https://img.shields.io/badge/Docker-multi--stage-2496ED?logo=docker&logoColor=white)](Dockerfile)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 ---
@@ -32,9 +34,7 @@
 - [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
-- [Key Findings from EDA](#key-findings-from-eda)
-- [Feature Engineering](#feature-engineering)
-- [Modeling Approach](#modeling-approach)
+- [Engineering Decisions](#engineering-decisions)
 - [Explainability](#explainability)
 - [Business Impact Simulator](#business-impact-simulator)
 - [Getting Started](#getting-started)
@@ -45,8 +45,6 @@
 - [License](#license)
 
 ---
-
-[![CI](https://github.com/rahuldas98rd-png/credit-risk-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/rahuldas98rd-png/credit-risk-intelligence/actions/workflows/ci.yml)
 
 ## The Problem
 
@@ -68,6 +66,7 @@ A production-style three-tier system:
 1. **Modelling layer** — a LightGBM stacked ensemble trained with 5-fold stratified cross-validation, tracked end-to-end in MLflow.
 2. **Explainability layer** — SHAP TreeExplainer generates per-borrower risk drivers and protective factors for every prediction.
 3. **Application layer** — a FastAPI serving endpoint exposes predictions as JSON; a Streamlit dashboard provides three interactive views: a business simulator, a borrower explainer, and a model insights page.
+4. **Production infrastructure** — multi-stage Docker build, GitHub Actions CI with lint/test/Docker-smoke-test pipeline, `pyproject.toml`-based packaging with `uv` for deterministic installs.
 
 Both services are deployed and publicly accessible (links above).
 
@@ -135,11 +134,12 @@ Both services are deployed and publicly accessible (links above).
                           ▼                         ▼
                 ┌──────────────────┐    ┌──────────────────────┐
                 │  FastAPI         │    │  Streamlit dashboard │
-                │  /predict        │    │  • Business sim      │
-                │  /health         │    │  • Borrower explain  │
-                │  /features       │    │  • Model insights    │
+                │  (Dockerized)    │    │  • Business sim      │
+                │  /predict        │    │  • Borrower explain  │
+                │  /health         │    │  • Model insights    │
+                │  /features       │    │                      │
                 └──────────────────┘    └──────────────────────┘
-                       Render                Streamlit Cloud
+                  Render / Docker         Streamlit Cloud
 ```
 
 ---
@@ -156,7 +156,11 @@ Both services are deployed and publicly accessible (links above).
 | API | FastAPI, Pydantic, Uvicorn |
 | Dashboard | Streamlit, Plotly |
 | Visualisation | matplotlib, seaborn |
+| Packaging | `pyproject.toml` (PEP 621), `uv` for resolution + lockfile |
 | Testing | pytest |
+| Linting | ruff |
+| Containerization | Docker (multi-stage build), docker-compose |
+| CI/CD | GitHub Actions (lint → test → Docker smoke test) |
 | Deployment | Streamlit Community Cloud, Render, Git LFS |
 
 ---
@@ -166,6 +170,7 @@ Both services are deployed and publicly accessible (links above).
 ```
 credit-risk-intelligence/
 ├── api/
+│   ├── __init__.py
 │   └── main.py                    # FastAPI prediction endpoint
 ├── app/
 │   └── streamlit_app.py           # 3-page Streamlit dashboard
@@ -185,71 +190,61 @@ credit-risk-intelligence/
 │   └── figures/                   # Generated plots
 ├── src/                           # Reusable Python modules
 │   ├── features.py
-│   ├── model.py
+│   ├── model.py                   # mlflow imported lazily inside training fns
 │   ├── explain.py
+│   ├── simulate.py
 │   └── utils.py
 ├── tests/                         # pytest unit tests
 │   ├── test_features.py
 │   └── test_model.py
-├── mlflow_tracking/               # MLflow experiment store
-├── requirements.txt
-├── setup.py
+├── mlflow/                        # MLflow experiment store (SQLite)
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 # Lint, test, Docker build + smoke test
+├── Dockerfile                     # Multi-stage build, non-root runtime
+├── docker-compose.yml
+├── .dockerignore
+├── pyproject.toml                 # PEP 621 metadata + tool config
+├── uv.lock                        # Deterministic dependency lockfile
+├── requirements.txt               # Slim production deps (Streamlit Cloud)
+├── render.yaml                    # Render deployment config
 ├── Makefile
 └── README.md
 ```
 
 ---
 
-## Key Findings from EDA
+## Engineering Decisions
 
-**1. Severe class imbalance (8.07% default rate).** A naive classifier predicting "repaid" for everyone would score 91.93% accuracy and be commercially worthless. This is why every model decision in the project is benchmarked against PR-AUC (10× the random baseline) rather than accuracy.
+These are the kinds of choices a senior reviewer will probe in an interview. Each one was deliberate.
 
-**2. External credit scores carry the strongest signal.** `EXT_SOURCE_2` and `EXT_SOURCE_3` show clean distributional separation between defaulters and repayers. Their engineered mean (`EXT_SOURCE_MEAN`) becomes the single most predictive feature in the entire model with a mean |SHAP| value of 0.5263 — three times higher than the next feature.
+### Why `pyproject.toml` over `setup.py`
 
-**3. Missingness itself is informative.** 49 columns had over 40% missing values. Rather than dropping them, binary `*_MISSING` flags were created — `EXT_SOURCE_1_MISSING` alone ranks in the top 10 SHAP features, confirming that the *absence* of a credit bureau record is a meaningful risk signal in its own right.
+Single source of truth (PEP 621) for project metadata, runtime dependencies, optional groups (`test`, `training`, `dev`), and tool configuration (ruff, pytest). One file replaces `setup.py` + standalone `ruff.toml` + scattered `[tool.*]` configs. Modern Python packaging standard since 2021.
 
-**4. Income type matters more than income level.** Maternity-leave and unemployed applicants default at 40%+ rates — five times the dataset average. Income stability dominates absolute income amount in predictive power.
+### Why `uv` over `pip`
 
----
+`uv sync` resolves and installs the dependency tree in **~5 seconds** vs `pip`'s ~45 seconds for the same operation. The `uv.lock` file gives bit-for-bit reproducible installs across machines and CI. The CI workflow time dropped from ~6 minutes to under 2 minutes (warm cache) after migrating, with no functional changes.
 
-## Feature Engineering
+### Why lazy mlflow imports in `src/model.py`
 
-28 new features were engineered from domain knowledge. The most impactful:
+Originally `model.py` imported `mlflow.lightgbm` and `mlflow.sklearn` at module level. This forced mlflow as a dependency for *every* consumer of the file — including `tests/test_model.py` (which only tests pure-numpy metric functions) and the deployed FastAPI service (which only does inference). Moving the imports inside `run_training()` decouples the training-only dependency from the inference and testing paths. Result: tests run with mlflow uninstalled, the API container ships without 100MB of experiment-tracking machinery.
 
-| Feature | Logic | Why it works |
-|---|---|---|
-| `CREDIT_TERM` | annuity / credit | Monthly burden vs loan size — **#1 by LightGBM gain** |
-| `EXT_SOURCE_MEAN` | mean of 3 bureau scores | Aggregates external signals — **#1 by SHAP** |
-| `ANNUITY_INCOME_RATIO` | annuity / income | Debt-to-income proxy |
-| `EXT_SOURCE_DISAGREEMENT` | std / mean of EXT sources | Bureau disagreement encodes uncertainty |
-| `EMPLOYMENT_STABILITY` | days_employed / days_birth | Fraction of life spent employed |
-| `*_MISSING` flags | 1 if value is null | Missingness as signal (32 flags) |
+### Why a multi-stage Docker build
 
-**14 of the top 25 features by LightGBM gain are engineered features**, validating the domain-knowledge approach over raw-feature ingestion.
+The builder stage installs `build-essential` (~250MB) to compile LightGBM/scipy. The runtime stage only needs `libgomp1` for LightGBM's OpenMP runtime. Splitting the stages drops the final image from ~850MB to **~360MB content size**. The runtime image runs as a non-root `app` user with explicit `HEALTHCHECK` directive — both standard production hygiene that container orchestrators (compose, ECS, K8s) rely on for traffic routing.
 
----
+### Why two-job CI with `needs:` ordering
 
-## Modeling Approach
+The `lint-and-test` job runs in ~30 seconds. The `docker-smoke-test` job runs in ~3 minutes. Having lint+test gate the Docker build means a missed import or unused variable fails CI in seconds — no waiting on a Docker build that won't matter. GHA cache on the Docker layer cuts subsequent runs to under 90 seconds.
 
-### Why LightGBM?
+### Why a smoke test that hits `/predict`, not just `/health`
 
-Gradient boosted trees are the industry standard for tabular financial data. LightGBM specifically handles large datasets efficiently, supports `scale_pos_weight` natively for imbalance, and outperforms XGBoost on this dataset shape (300k rows, 150 features) in benchmarks.
+A `/health` smoke test only proves the server started. Hitting `/predict` with a real payload proves: (1) Pydantic validation works, (2) the model files unpickled correctly, (3) SHAP runs end-to-end, (4) the response shape matches the schema. End-to-end validation in 30 seconds. It also caught a Git LFS misconfiguration on first CI run — model files were checked in as LFS pointers and never resolved, which `/health` would have happily returned 200 for. `/predict` failed loudly on the unpickle, surfacing the bug immediately.
 
-### Why a Stacked Ensemble?
+### Why a conservative ruff ruleset
 
-The Logistic Regression meta-learner trained on out-of-fold predictions adds calibration on top of the base model. While the metric gain was marginal here (ROC-AUC was identical), stacking is the standard production pattern and demonstrates MLOps awareness for interview discussion.
-
-### Why PR-AUC Over Accuracy?
-
-With an 8% default rate, ROC-AUC saturates and accuracy is meaningless. PR-AUC measures performance specifically on the minority class — the one we actually care about predicting. Random baseline PR-AUC on this dataset is the positive rate itself (≈0.08); achieving 0.799 represents a ~10× lift.
-
-### Class Imbalance Handling
-
-Two-pronged approach:
-- `scale_pos_weight=11` in LightGBM (≈ majority/minority ratio)
-- SMOTE oversampling raising positive rate from 8.07% to 16.7%
-
-> ⚠️ **Honest disclosure:** SMOTE was applied to the full training set before cross-validation for simplicity. The rigorous approach applies SMOTE *inside each fold* to prevent synthetic samples from the validation set leaking into training. Current metrics may be modestly inflated as a result. This is documented as the first item in [What I'd Do With More Time](#what-id-do-with-more-time).
+Ruff is configured with `select = ["E", "F", "I"]` — pycodestyle errors, pyflakes (unused imports, undefined names), and isort. Style warnings (line length, naming conventions) are intentionally **off**. Starting strict on a previously-unlinted codebase produces a wall of red and forces noise edits; starting with rules that catch real bugs gets the codebase clean and lets style tightening happen incrementally.
 
 ---
 
@@ -299,39 +294,49 @@ This frames every model decision as a **business decision** with explicit dollar
 ### Prerequisites
 
 - Python 3.12+
+- [`uv`](https://github.com/astral-sh/uv) (recommended) or pip
 - Git + Git LFS (for downloading the model artefacts)
 - A Kaggle account (for the dataset, if retraining)
 
-### Local Setup
+### Local Setup with `uv` (recommended)
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/credit-risk-intelligence.git
+git clone https://github.com/rahuldas98rd-png/credit-risk-intelligence.git
 cd credit-risk-intelligence
 
-# Create and activate a virtual environment
+# Pull model artefacts via Git LFS
+git lfs pull
+
+# Install dependencies (creates .venv automatically)
+uv sync --extra test
+
+# Run tests to verify
+uv run pytest tests/
+```
+
+### Local Setup with pip (alternative)
+
+```bash
 python -m venv venv
 source venv/bin/activate    # On Windows: venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
 pip install -e .
-
-# Pull model artefacts via Git LFS
 git lfs pull
 ```
 
 ### Run the Services
 
 ```bash
-# Start the FastAPI endpoint (runs on http://localhost:8000)
-uvicorn api.main:app --reload --port 8000
+# Option 1: Run with uv
+uv run uvicorn api.main:app --reload --port 8000
+uv run streamlit run app/streamlit_app.py
 
-# Start the Streamlit dashboard (runs on http://localhost:8501)
-streamlit run app/streamlit_app.py
+# Option 2: Run the API in Docker (preferred for production parity)
+docker compose up
 
-# Launch the MLflow UI for experiment tracking
-mlflow ui --backend-store-uri sqlite:///mlflow_tracking/mlflow.db --port 5000
+# MLflow tracking UI
+mlflow ui --backend-store-uri sqlite:///mlflow/mlflow.db --port 5000
 ```
 
 ### Retrain From Scratch
@@ -342,7 +347,10 @@ mlflow ui --backend-store-uri sqlite:///mlflow_tracking/mlflow.db --port 5000
 kaggle competitions download -c home-credit-default-risk -p data/raw
 unzip data/raw/home-credit-default-risk.zip -d data/raw/
 
-# 3. Run the notebooks in order
+# 3. Install training extras (includes mlflow)
+uv sync --extra training
+
+# 4. Run the notebooks in order
 jupyter notebook notebooks/
 ```
 
@@ -399,10 +407,10 @@ Full interactive documentation available at the [Swagger UI](https://credit-risk
 
 ## Testing
 
-The repository includes pytest unit tests covering the feature engineering pipeline and metric computation.
+The repository includes pytest unit tests covering the feature engineering pipeline and metric computation. **CI runs them on every push and PR**, plus a Docker build and container smoke test that hits `/predict` with a real payload.
 
 ```bash
-pytest tests/ -v
+uv run pytest tests/
 ```
 
 Tests cover:
@@ -412,19 +420,85 @@ Tests cover:
 - Engineered feature value ranges and constraints
 - Metric computation correctness on perfect, random, and edge-case inputs
 
+Tests run **without** mlflow installed (mlflow is a training-only dependency). The CI lint + test job completes in ~20 seconds on a warm cache.
+
 ---
 
 ## What I'd Do With More Time
 
-In rough order of priority — these are the next steps a production team would tackle:
+In rough order of priority — these are the next steps a production team would tackle. Items already shipped via Phase 2 work are noted ✅.
+
+### Modelling
 
 1. **SMOTE inside CV folds.** Refactor `train_lgbm_cv` to apply resampling within each fold rather than to the full training set, eliminating synthetic data leakage and producing more honest metrics.
 2. **Join bureau and previous application tables.** `bureau.csv` and `previous_application.csv` contain rich behavioural data that should push ROC-AUC further. Aggregate features (count, mean, max of past credits) typically lift performance by 2–4 points.
 3. **Isotonic or Platt calibration.** The calibration plot shows the model is under-confident at high probabilities — a known SMOTE artefact. A post-hoc isotonic regression on a held-out set would correct this.
-4. **Evidently AI drift monitoring.** Track feature distributions and prediction shifts over time to detect concept drift in production.
-5. **Bayesian hyperparameter optimisation.** Replace the hand-tuned LightGBM config with Optuna or Hyperopt — likely worth 1–2 PR-AUC points.
-6. **Containerise the API.** Wrap the FastAPI service in a Docker image for reproducible cloud deployment beyond Render's free tier.
-7. **Maintain split requirements files.** `requirements-dev.txt` (full freeze for reproducibility) and `requirements.txt` (minimal for cloud) — this project learned that lesson the hard way during deployment.
+4. **Bayesian hyperparameter optimisation.** Replace the hand-tuned LightGBM config with Optuna or Hyperopt — likely worth 1–2 PR-AUC points.
+
+## MLflow Workflow
+
+The trained model is registered in the MLflow Model Registry with explicit
+stage promotion. Production-bound models move through:
+
+None  →  Staging  →  Production
+(registered)   (validated)    (live)
+
+### Register the existing model
+
+```bash
+# One-time bootstrap: wraps the trained pickles in a PyFunc model,
+# logs to MLflow, registers as v1, transitions to Staging
+uv run python scripts/register_model.py --bootstrap
+
+# Promote Staging → Production after manual review
+uv run python scripts/register_model.py --promote
+
+# Inspect the registry
+uv run python scripts/register_model.py --list
+```
+
+### View the registry UI
+
+```bash
+uv run mlflow ui --backend-store-uri sqlite:///mlflow/mlflow.db --port 5000
+# Open http://localhost:5000/#/models
+```
+
+### Serve the API from the registry
+
+By default the API loads models from local pickle files (production-friendly,
+no MLflow dependency). Set `MODEL_SOURCE` to load from the registry:
+
+```bash
+# Linux / macOS
+export MODEL_SOURCE=registry:Production
+
+# Windows PowerShell
+$env:MODEL_SOURCE = "registry:Production"
+
+uv run uvicorn api.main:app --port 8000
+```
+
+### Why the model is a PyFunc
+
+The production model is a stacked ensemble: **5 LightGBM fold models averaged,
+then their averaged probability passed through a logistic regression
+meta-learner for calibration**. Standard `mlflow.lightgbm.log_model` handles
+a single model; PyFunc bundles the whole pipeline (5 LGBM folds + LR + feature
+ordering) into one registered artifact with custom prediction logic.
+See `src/registry.py::CreditRiskStackedModel`.
+
+### MLOps & Production
+
+5. ✅ **Containerise the API** — multi-stage Dockerfile, runs as non-root, ~360MB content size.
+6. ✅ **CI/CD pipeline** — GitHub Actions: lint → test → Docker build → container smoke test.
+7. ✅ **Modern packaging** — `pyproject.toml`, `uv.lock`, optional dependency groups for `test` / `training` / `dev`.
+8. ⏳ **MLflow Model Registry** — promote experiment-tracked models to Staging / Production stages; serve from registry rather than committed pickle files.
+9. ⏳ **Prometheus metrics** — `/metrics` endpoint exposing latency histograms, RPS, prediction-class distribution.
+10. ⏳ **Grafana dashboard** — operational view: 4 panels (RPS, p95 latency, prediction class balance, drift score).
+11. ⏳ **Evidently AI drift monitoring** — daily cron generating drift reports against the training distribution.
+12. ⏳ **Cloud Run / ECS Fargate deployment** — alternative to Render's free tier, with Terraform IaC.
+13. ⏳ **Drift-triggered retraining loop** — drift detected → GitHub Actions cron triggers retraining → new model registered in MLflow → manual approval → deploy.
 
 ---
 
@@ -448,6 +522,6 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE) for de
 
 ## Contact
 
-Built by **[Your Name]** · [LinkedIn](https://linkedin.com/in/your-handle) · [GitHub](https://github.com/your-handle) · [Email](mailto:your.email@example.com)
+Built by **Rahul Das** · [GitHub](https://github.com/rahuldas98rd-png)
 
 If this project is useful to you, please ⭐ the repo on GitHub.

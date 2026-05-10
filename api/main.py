@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 import joblib
+import os
 import numpy as np
 import pandas as pd
 import shap
@@ -20,13 +21,50 @@ feature_names: list[str] = []
 explainer = None
 
 
+def _load_from_files(models_dir):
+    """Default: load joblib pickles directly from disk. Used in production
+    Docker container — no MLflow dependency required."""
+    return {
+        "lgbm_folds": joblib.load(models_dir / "lgbm_folds.pkl"),
+        "meta_learner": joblib.load(models_dir / "meta_learner.pkl"),
+        "feature_names": joblib.load(models_dir / "feature_names.pkl"),
+    }
+
+
+def _load_from_registry(stage: str):
+    """Load the registered model's artifacts from the MLflow registry.
+    
+    This is opt-in via MODEL_SOURCE=registry:<stage>. mlflow is imported
+    lazily so the default file-based path doesn't require it.
+    """
+    from src.registry import download_registry_artifacts  # lazy import
+    
+    artifacts_dir = download_registry_artifacts(stage=stage)
+    return {
+        "lgbm_folds":    joblib.load(artifacts_dir / "lgbm_folds.pkl"),
+        "meta_learner":  joblib.load(artifacts_dir / "meta_learner.pkl"),
+        "feature_names": joblib.load(artifacts_dir / "feature_names.pkl"),
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load model artifacts on startup; release on shutdown."""
     global fold_models, meta_model, feature_names, explainer
-    fold_models   = joblib.load(MODELS_DIR / "lgbm_folds.pkl")
-    meta_model    = joblib.load(MODELS_DIR / "meta_learner.pkl")
-    feature_names = joblib.load(MODELS_DIR / "feature_names.pkl")
+    MODEL_SOURCE = os.getenv("MODEL_SOURCE", "file")
+    logger.info(f"Loading models with MODEL_SOURCE={MODEL_SOURCE}")
+
+    if MODEL_SOURCE.startswith("registry"):
+        # Format: "registry" or "registry:Staging" or "registry:Production"
+        stage = MODEL_SOURCE.split(":", 1)[1] if ":" in MODEL_SOURCE else "Production"
+        loaded = _load_from_registry(stage)
+    else:
+        loaded = _load_from_files(MODELS_DIR)
+
+    fold_models   = loaded["lgbm_folds"]
+    meta_model    = loaded["meta_learner"]
+    feature_names = loaded["feature_names"]
+
     explainer     = shap.TreeExplainer(fold_models[0])
     logger.info(f"Models loaded — {len(feature_names)} features")
     yield
