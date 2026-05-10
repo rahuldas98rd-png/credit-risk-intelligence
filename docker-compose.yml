@@ -1,18 +1,74 @@
 services:
+  # ── The API service (unchanged from Session 1) ────────────────────────────
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     image: credit-risk-api:latest
     container_name: credit-risk-api
     ports:
       - "8000:8000"
     environment:
-      - PYTHONUNBUFFERED=1
-    restart: unless-stopped
+      # File mode — registry mode requires mlflow infra not present in the
+      # production container. Local registry mode is run via `uv run uvicorn`
+      # outside docker-compose, hitting the host's mlflow SQLite store.
+      MODEL_SOURCE: "file"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 20s
+    networks:
+      - monitoring
+
+  # ── Prometheus: scrapes /metrics every 15s, keeps 15 days of TSDB ─────────
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: credit-risk-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    networks:
+      - monitoring
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ── Grafana: auto-provisioned datasource + dashboard, no manual setup ─────
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: credit-risk-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"     # so screenshots don't need login
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  # TSDB persistence — survives `docker compose down`. Use `docker compose
+  # down -v` to also wipe metrics history during dev.
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    # Stable UID so dashboard JSON can reference it without knowing the
+    # auto-generated one. Provisioned datasources are read-only by default.
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    # `prometheus` resolves to the Prometheus container via docker-compose
+    # service-name DNS within the `monitoring` network.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: "15s"
+      httpMethod: "POST"
