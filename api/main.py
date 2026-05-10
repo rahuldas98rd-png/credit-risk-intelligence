@@ -9,6 +9,17 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+import time
+from prometheus_fastapi_instrumentator import Instrumentator
+
+from src.metrics import (
+    prediction_class_total,
+    prediction_probability,
+    shap_computation_seconds,
+    model_info,
+    detect_model_version,
+)
+
 from src.utils import ROOT_DIR, get_logger
 
 logger = get_logger("api")
@@ -37,7 +48,16 @@ def _load_from_registry(stage: str):
     This is opt-in via MODEL_SOURCE=registry:<stage>. mlflow is imported
     lazily so the default file-based path doesn't require it.
     """
-    from src.registry import download_registry_artifacts  # lazy import
+    try:
+        from src.registry import download_registry_artifacts  # lazy import
+    except ModuleNotFoundError as e:
+        if "mlflow" in str(e).lower():
+            raise RuntimeError(
+                "MODEL_SOURCE=registry requires mlflow, but it isn't installed. "
+                "Run `uv sync --extra training` to install it, "
+                "or set MODEL_SOURCE=file to use local pickle files instead."
+            ) from e
+        raise
     
     artifacts_dir = download_registry_artifacts(stage=stage)
     return {
@@ -67,6 +87,15 @@ async def lifespan(app: FastAPI):
 
     explainer     = shap.TreeExplainer(fold_models[0])
     logger.info(f"Models loaded — {len(feature_names)} features")
+
+    # Set the model_info gauge so Prometheus can correlate metric shifts with deploys
+    model_info.labels(
+        model_name="credit-risk-lgbm-stack",
+        version=detect_model_version(MODEL_SOURCE),
+        source=MODEL_SOURCE,
+    ).set(1)
+    logger.info(f"Metrics initialized for {detect_model_version(MODEL_SOURCE)} ({MODEL_SOURCE})")
+
     yield
     # Shutdown hook (no cleanup needed today; could close DB pools etc. later)
     logger.info("API shutting down")
@@ -85,6 +114,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Auto-expose HTTP metrics at /metrics (request rate, latency, status codes)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -137,11 +169,17 @@ def predict(request: PredictionRequest):
             risk_label = "LOW"
             decision   = "Approve"
             confidence = "High" if final_prob < 0.10 else "Medium"
+        
+        # Record application-level metrics
+        prediction_class_total.labels(risk_label=risk_label).inc()
+        prediction_probability.observe(final_prob)
 
         # SHAP explanation
         risk_drivers, protectors = [], []
         if request.explain:
+            shap_start = time.perf_counter()
             sv = explainer.shap_values(row)
+            shap_computation_seconds.observe(time.perf_counter() - shap_start)
             if isinstance(sv, list):
                 sv = sv[1]
             sv_flat = sv[0]
